@@ -43,6 +43,17 @@ IFX_INTERRUPT(asclin0ErISR, 0, IFX_INTPRIO_ASCLIN0_ER) {
     IfxAsclin_Asc_isrError(&asc);
 }
 
+
+IFX_INTERRUPT(asclin1TxISR, 0, IFX_INTPRIO_ASCLIN1_TX) {
+    IfxAsclin_Asc_isrTransmit(&asc1);
+}
+IFX_INTERRUPT(asclin1RxISR, 0, IFX_INTPRIO_ASCLIN1_RX) {
+    IfxAsclin_Asc_isrReceive(&asc1);
+}
+IFX_INTERRUPT(asclin1ErISR, 0, IFX_INTPRIO_ASCLIN1_ER) {
+    IfxAsclin_Asc_isrError(&asc1);
+}
+
 void initVADC(void);
 void VADC_startConversion(void);
 unsigned int VADC_readResult(void);
@@ -160,6 +171,10 @@ int core0_main(void) {
     Ifx_SizeT duty_len = 2;
 
 
+    uint8 Button;
+
+   Ifx_SizeT send_len = 1;
+
   /*  char cmd_ON = 'O';
     Ifx_SizeT cmd_ON_len = 1;
     char cmd_OFF = 'F';
@@ -186,11 +201,13 @@ int core0_main(void) {
                 duty = 12500 * adcResult / 4096;
 
                IfxAsclin_Asc_write(&asc, &duty, &duty_len, TIME_INFINITE);
-               if (duty % 2 == 0)
+               IfxAsclin_Asc_read(&asc1, &Button, &send_len, TIME_INFINITE);
+
+               if (Button == 1)
                    IfxPort_setPinHigh(PIN_LED13);
                else
                    IfxPort_setPinLow(PIN_LED13);
-               delay(100);
+
 
 
     }
