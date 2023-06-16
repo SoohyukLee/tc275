@@ -419,9 +419,9 @@ int core0_main(void)
 
     // glabal variable
 
-    uint16 target_raw = 0;
-    uint16 target_1 = 0;
-    Ifx_SizeT duty_len = 2;
+    uint8 target_raw = 0;
+    uint8 target_1 = 0;
+    Ifx_SizeT duty_len = 1;
 
     unsigned int ECU_Fault;
 
@@ -450,7 +450,7 @@ int core0_main(void)
 
     while(1)
     {
-        IfxAsclin_Asc_read(&asc1, &target_raw, &duty_len, TIME_INFINITE); //Read Target raw from UART CH1
+        IfxAsclin_Asc_read(&asc, &target_raw, &duty_len, TIME_INFINITE); //Read Target raw from UART CH1
 
         for(unsigned int i = 0; i < 10000000; i++);
         usonicTrigger();
@@ -484,7 +484,7 @@ int core0_main(void)
         }
 
 
-        IfxAsclin_Asc_write(&asc, &target_1, &duty_len, TIME_INFINITE);
+        IfxAsclin_Asc_write(&asc1, &target_1, &duty_len, TIME_INFINITE);
         if (target_1 % 2 == 0)
             IfxPort_setPinHigh(PIN_LED13);
         else
