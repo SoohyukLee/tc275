@@ -24,9 +24,22 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS 
  * IN THE SOFTWARE.
  *********************************************************************************************************************/
-#include "Ifx_Types.h"
+#include "IfxAsclin_Asc.h"
+#include "IfxAsclin_PinMap.h"
 #include "IfxCpu.h"
+#include "IfxCpu_Irq.h"
 #include "IfxScuWdt.h"
+#include "Ifx_Types.h"
+#include "IfxScuWdt.h"
+
+#include "VADC.h"
+#include "IfxVadc_reg.h"
+#include "IfxCpu.h"
+
+
+
+
+
 
 /* Define PORT10 Registers for LED */
 #define PORT10_BASE     (0xF003B000)
@@ -67,6 +80,9 @@
 #define PC0             3
 #define PCL0            16
 #define PS0             0
+#define PC3             27
+#define PCL3            19
+#define PS3             3
 
 /* Define SCU Registers for Interrupt */
 #define SCU_BASE        (0xF0036000)
@@ -139,10 +155,10 @@ void init_1_inputChannel(void)
 void init_2_inputChannel(void)
 {
     /* Reset PC1 in IOCR0*/
-    PORT15_IOCR0 &= ~((0x1F) << PC1);
+    PORT20_IOCR0 &= ~((0x1F) << PC3);
 
     /* Set PC1 with push-pull(2b0xx10) */
-    PORT15_IOCR0 |= ((0x2) << PC1);
+    PORT20_IOCR0 |= ((0x2) << PC3);
 }
 
 
@@ -268,8 +284,6 @@ void init_ERU2(void)   // PORT15.1 - input channel
 #define TOS             11
 #define SRE             10
 #define SRPN            0
-
-IfxCpu_syncEvent g_cpuSyncEvent = 0;
 
 /* Initialize LED (RED) */
 void init_LED(void)
@@ -570,21 +584,199 @@ int Tlength[] = {
         EIG,EIG,EIG,EIG,QUA,EIG,EIG,    QUA,EIG,EIG,EIG,EIG,QUA,    QUA,EIG,QUA,EIG,QUA,    EIG,EIG,EIG,EIG,EIG,EIG,QUA,
         WHO};
 
-////////////////////////////////////////////////main////////////////////////////////////////////////////////
-int core0_main(void)
-{
+////////////////////////////////////////////////next////////////////////////////////////////////////////////
+
+
+// SCU registers
+#define LCK_BIT_LSB_IDX     1
+#define ENDINIT_BIT_LSB_IDX 0
+#define EXIS0_BIT_LSB_IDX   4
+#define FEN0_BIT_LSB_IDX    8
+#define EIEN0_BIT_LSB_IDX   11
+#define INP0_BIT_LSB_IDX    12
+#define IGP0_BIT_LSB_IDX    14
+
+// SRC registers
+#define SRPN_BIT_LSB_IDX    0
+#define TOS_BIT_LSB_IDX     11
+#define SRE_BIT_LSB_IDX     10
+
+// GTM registers
+#define DISS_BIT_LSB_IDX        1
+#define DISR_BIT_LSB_IDX        0
+#define SEL7_BIT_LSB_IDX        14
+#define EN_FXCLK_BIT_LSB_IDX    22
+#define FXCLK_SEL_BIT_LSB_IDX   0
+#define SEL1_BIT_LSB_IDX        2
+
+// GTM - TOM0 registers
+#define UPEN_CTRL1_BIT_LSB_IDX  18
+#define HOST_TRIG_BIT_LSB_IDX   0
+#define ENDIS_CTRL1_BIT_LSB_IDX 2
+#define OUTEN_CTRL1_BIT_LSB_IDX 2
+#define CLK_SRC_SR_BIT_LSB_IDX  12
+#define OSM_BIT_LSB_IDX         26
+#define TRIGOUT_BIT_LSB_IDX     24
+#define SL_BIT_LSB_IDX          11
+
+//UART
+
+#define IFX_INTPRIO_ASCLIN0_TX 1
+#define IFX_INTPRIO_ASCLIN0_RX 2
+#define IFX_INTPRIO_ASCLIN0_ER 3
+
+#define IFX_INTPRIO_ASCLIN1_TX 4
+#define IFX_INTPRIO_ASCLIN1_RX 5
+#define IFX_INTPRIO_ASCLIN1_ER 6
+
+#define PIN_LED13       &MODULE_P10,2
+
+IfxCpu_syncEvent g_cpuSyncEvent = 0;
+
+IfxAsclin_Asc asc;
+
+IfxAsclin_Asc asc1;
+
+#define ASC_TX_BUFFER_SIZE 64
+static uint8 ascTxBuffer[ASC_TX_BUFFER_SIZE + sizeof(Ifx_Fifo) + 8];
+#define ASC_RX_BUFFER_SIZE 64
+static uint8 ascRxBuffer[ASC_RX_BUFFER_SIZE + sizeof(Ifx_Fifo) + 8];
+
+static uint8 ascTxBuffer1[ASC_TX_BUFFER_SIZE + sizeof(Ifx_Fifo) + 8];
+static uint8 ascRxBuffer1[ASC_RX_BUFFER_SIZE + sizeof(Ifx_Fifo) + 8];
+
+
+
+IFX_INTERRUPT(asclin0TxISR, 0, IFX_INTPRIO_ASCLIN0_TX) {
+    IfxAsclin_Asc_isrTransmit(&asc);
+}
+IFX_INTERRUPT(asclin0RxISR, 0, IFX_INTPRIO_ASCLIN0_RX) {
+    IfxAsclin_Asc_isrReceive(&asc);
+}
+IFX_INTERRUPT(asclin0ErISR, 0, IFX_INTPRIO_ASCLIN0_ER) {
+    IfxAsclin_Asc_isrError(&asc);
+}
+
+
+IFX_INTERRUPT(asclin1TxISR, 0, IFX_INTPRIO_ASCLIN1_TX) {
+    IfxAsclin_Asc_isrTransmit(&asc1);
+}
+IFX_INTERRUPT(asclin1RxISR, 0, IFX_INTPRIO_ASCLIN1_RX) {
+    IfxAsclin_Asc_isrReceive(&asc1);
+}
+IFX_INTERRUPT(asclin1ErISR, 0, IFX_INTPRIO_ASCLIN1_ER) {
+    IfxAsclin_Asc_isrError(&asc1);
+}
+
+void initVADC(void);
+void VADC_startConversion(void);
+unsigned int VADC_readResult(void);
+
+void ASC0_init() {
+    // create module config
+    IfxAsclin_Asc_Config ascConfig;
+
+    IfxAsclin_Asc_initModuleConfig(&ascConfig, &MODULE_ASCLIN0);
+
+    // set the desired baudrate
+    ascConfig.baudrate.prescaler = 1;
+    ascConfig.baudrate.baudrate = 9600;
+    ascConfig.baudrate.oversampling = IfxAsclin_OversamplingFactor_4;
+
+    // ISR priorities and interrupt target
+    ascConfig.interrupt.txPriority = IFX_INTPRIO_ASCLIN0_TX;
+    ascConfig.interrupt.rxPriority = IFX_INTPRIO_ASCLIN0_RX;
+    ascConfig.interrupt.erPriority = IFX_INTPRIO_ASCLIN0_ER;
+    ascConfig.interrupt.typeOfService = IfxSrc_Tos_cpu0;
+
+    // FIFO configuration
+    ascConfig.txBuffer     = &ascTxBuffer;
+    ascConfig.txBufferSize = ASC_TX_BUFFER_SIZE;
+    ascConfig.rxBuffer     = &ascRxBuffer;
+    ascConfig.rxBufferSize = ASC_RX_BUFFER_SIZE;
+    // pin configuration
+    const IfxAsclin_Asc_Pins pins
+        = {NULL,
+           IfxPort_InputMode_pullUp,        // CTS pin not used
+           &IfxAsclin0_RXB_P15_3_IN,        // RX IN (D0)
+           IfxPort_InputMode_pullUp,        // Rx pin
+           NULL,
+           IfxPort_OutputMode_pushPull,     // RTS pin not used
+           &IfxAsclin0_TX_P15_2_OUT,        // TX OUT (D1)
+           IfxPort_OutputMode_pushPull,     // Tx pin
+           IfxPort_PadDriver_cmosAutomotiveSpeed1};
+    ascConfig.pins = &pins;
+    IfxAsclin_Asc_initModule(&asc, &ascConfig);
+}
+
+void ASC1_init() {
+    // create module config
+    IfxAsclin_Asc_Config ascConfig;
+
+    IfxAsclin_Asc_initModuleConfig(&ascConfig, &MODULE_ASCLIN1);
+
+    // set the desired baudrate
+    ascConfig.baudrate.prescaler = 1;
+    ascConfig.baudrate.baudrate = 9600;
+    ascConfig.baudrate.oversampling = IfxAsclin_OversamplingFactor_4;
+
+    // ISR priorities and interrupt target
+    ascConfig.interrupt.txPriority = IFX_INTPRIO_ASCLIN1_TX;
+    ascConfig.interrupt.rxPriority = IFX_INTPRIO_ASCLIN1_RX;
+    ascConfig.interrupt.erPriority = IFX_INTPRIO_ASCLIN1_ER;
+    ascConfig.interrupt.typeOfService = IfxSrc_Tos_cpu0;
+
+    // FIFO configuration
+    ascConfig.txBuffer     = &ascTxBuffer1;
+    ascConfig.txBufferSize = ASC_TX_BUFFER_SIZE;
+    ascConfig.rxBuffer     = &ascRxBuffer1;
+    ascConfig.rxBufferSize = ASC_RX_BUFFER_SIZE;
+    // pin configuration
+    const IfxAsclin_Asc_Pins pins
+        = {NULL,
+           IfxPort_InputMode_pullUp,        // CTS pin not used
+           &IfxAsclin1_RXA_P15_1_IN,        // RX IN (D0)
+           IfxPort_InputMode_pullUp,        // Rx pin
+           NULL,
+           IfxPort_OutputMode_pushPull,     // RTS pin not used
+           &IfxAsclin1_TX_P15_0_OUT,        // TX OUT (D1)
+           IfxPort_OutputMode_pushPull,     // Tx pin
+           IfxPort_PadDriver_cmosAutomotiveSpeed1};
+    ascConfig.pins = &pins;
+    IfxAsclin_Asc_initModule(&asc1, &ascConfig);
+}
+
+
+void delay(int cnt) {
+    int cycle,j;
+    for (j = 0; j < cnt; j++)
+        for (cycle = 0; cycle < 50000; cycle++)
+            __nop();
+}
+
+
+
+
+int core0_main(void) {
     IfxCpu_enableInterrupts();
-    
-    /* !!WATCHDOG0 AND SAFETY WATCHDOG ARE DISABLED HERE!!
-     * Enable the watchdogs and service them periodically if it is required
-     */
+    /*
+     * !!WATCHDOG0 AND SAFETY WATCHDOG ARE DISABLED HERE!!
+     * Enable the watchdog in the demo if it is required and also service the
+     * watchdog periodically
+     * */
     IfxScuWdt_disableCpuWatchdog(IfxScuWdt_getCpuWatchdogPassword());
     IfxScuWdt_disableSafetyWatchdog(IfxScuWdt_getSafetyWatchdogPassword());
-    
-    /* Wait for CPU sync event */
+
+    /* Cpu sync event wait*/
     IfxCpu_emitEvent(&g_cpuSyncEvent);
     IfxCpu_waitEvent(&g_cpuSyncEvent, 1);
-    
+
+    IfxPort_setPinModeOutput(PIN_LED13, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_general);
+    IfxPort_setPinLow(PIN_LED13);
+
+    ASC0_init();
+    ASC1_init();
+    initVADC();
 
     init_RED_LED();                                // Initialize LED
     init_BLUE_LED();
@@ -595,16 +787,84 @@ int core0_main(void)
     init_2_inputChannel();
     init_ERU();                                // Initialize ERU
     init_LED();                                // Initialize LED
-    init_Switch();                             // Initialize Switch
     init_CCU60();
     init_Buzzer();
     init_GTM_TOM0_PWM();
 
-    while(1)
-    {
+
+
+
+    volatile uint8 duty1;
+    volatile uint8 duty2;
+//    char data[2];
+//    data[0] = (duty >> 8);
+//    data[1] = (duty & 0xFF);
+
+    Ifx_SizeT duty_len = 1;
+
+
+//    volatile uint8 Button;
+
+//   Ifx_SizeT send_len = 1;
+
+  /*  char cmd_ON = 'O';
+    Ifx_SizeT cmd_ON_len = 1;
+    char cmd_OFF = 'F';
+    Ifx_SizeT cmd_OFF_len = 1;
+    */
+
+    while(1) {
+
+ /*       IfxAsclin_Asc_write(&asc, &cmd_ON, &cmd_ON_len, TIME_INFINITE);
+        delay(1000);
+        IfxPort_setPinLow(PIN_LED13);
+        IfxAsclin_Asc_write(&asc, &cmd_OFF, &cmd_OFF_len, TIME_INFINITE);
+        delay(1000);
+*/
+//        VADC_startConversion();
+ //              unsigned int adcResult = VADC_readResult();
+
+//               duty = 12500 * adcResult / 4096;
+//               IfxAsclin_Asc_write(&asc, &duty, &duty_len, TIME_INFINITE);
+
+                VADC_startConversion();
+
+
+                delay(100);
+                unsigned int adcResult = VADC_readResult();
+                delay(100);
+                uint8 duty1 = 128 * adcResult / 4096;
+               //duty1 = 12500 * adcResult / 4096;
+                delay(10);
+                IfxAsclin_Asc_write(&asc, &duty1, &duty_len, TIME_INFINITE);
+    
+                delay(100);
+                uint8 duty2 = 128 * adcResult / 4096;
+                delay(10);
+                IfxAsclin_Asc_write(&asc1, &duty2, &duty_len, TIME_INFINITE);
+                delay(100);
+
+
+
+                /*if ((PORT20_IN & 0x01) == 0x01) {
+                    PORT10_OMR |= (1<<PCL2);
+                } else {
+                    PORT10_OMR |= (1<<PS2);
+
+
+                }
+
+                if ((PORT20_IN & 0x07) == 0x0) {
+                    PORT10_OMR |= (1<<PCL1);
+                } else {
+                    PORT10_OMR |= (1<<PS1);
+
+                }*/
+
 
     }
-    return (1);
+
+    return 1;
 }
 
 int sys_tic = 0;
@@ -615,7 +875,7 @@ void ERU3_ISR(void)
 {
     PORT10_OMR |= ((1<<PCL2) | (1<<PS2));           // Toggle LED BLUE
     //PORT10_OMR |= ((1<<PCL1) | (1<<PS1));
-    /* CCU60 T12 Start */
+    // CCU60 T12 Start
         CCU60_TCTR4 = (1 << T12RS);                  // T12 starts counting
         int pwm_cnt = PWM_FREQ / tones[rithm];
         GTM_TOM0_CH11_SR0 = pwm_cnt;
@@ -629,7 +889,7 @@ void ERU4_ISR(void)
 {
     //PORT20_OMR |= ((1<<PCL0) | (1<<PS0));
     PORT10_OMR |= ((1<<PCL1) | (1<<PS1));           // Toggle LED RED
-    /* CCU60 T12 Start */
+    // CCU60 T12 Start
         CCU60_TCTR4 = (1 << T12RS);                  // T12 starts counting
         int pwm_cnt = PWM_FREQ / tones[rithm];
         GTM_TOM0_CH11_SR0 = pwm_cnt;
@@ -638,10 +898,11 @@ void ERU4_ISR(void)
         rithm = 0;
 
 }
+
 __interrupt(0x0A) __vector_table(0)
 void ERU0_ISR(void)
 {
-    /* CCU60 T12 Start */
+    // CCU60 T12 Start
     CCU60_TCTR4 = (1 << T12RS);                  // T12 starts counting
     int pwm_cnt = PWM_FREQ / tones[rithm];
     GTM_TOM0_CH11_SR0 = pwm_cnt;
@@ -650,6 +911,7 @@ void ERU0_ISR(void)
     rithm = 0;
 
 }
+
 
 
 __interrupt( 0x0B ) __vector_table( 0 )
@@ -675,3 +937,4 @@ void CCU60_T12_ISR(void)
         sys_tic = 0;
     }
 }
+
